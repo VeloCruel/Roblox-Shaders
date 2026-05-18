@@ -90,8 +90,12 @@ local State = {
 	Wetness            = 0.5,
 	Bloom              = 1.0,
 	Reflection         = 1.0,
-	Quality            = "Ultra",       -- Low / Medium / High / Ultra
-	ColorPreset        = "Enhanced",    -- Enhanced / Cinematic / Realistic / GTA Day / GTA Night / Sunset / Neutral
+	Quality            = "Ultra",       -- Low / Medium / High / Ultra / Max
+	-- DEFAULT to Photorealistic + ACES so the moment the shader loads you
+	-- get the photographic neutral look — no waiting for user to manually
+	-- pick a preset. Previous default ("Enhanced") had +0.13 saturation
+	-- which is what made everything look oversaturated out of the box.
+	ColorPreset        = "Photorealistic",
 	Vignette           = true,
 	LensFlare          = true,
 	AutoFocus          = true,
@@ -119,7 +123,7 @@ local State = {
 	CycleSpeed         = 24 / (12 * 60),  -- 12 real-min full day = 0.0333 ClockTime/sec
 	Underwater         = true,
 	FreeCam            = false,
-	Tonemap            = "Filmic",  -- Linear / Filmic / ACES / Punchy
+	Tonemap            = "ACES",    -- Linear / Filmic / ACES / Punchy / Reinhard / Cinematic
 	PerfHUD            = false,
 	CinematicMode      = false,
 	TimeMode           = "Auto",        -- Auto / Day / Night
@@ -256,8 +260,12 @@ local ColorPresets = {
 	-- AmbientShift removes warm ambient and adds a touch of cool, so sky-bounce
 	-- looks like real sky-bounce (blue) rather than warm fill.
 	Photorealistic = {
-		Main  = { Brightness = -0.015, Contrast = 0.28, Saturation = -0.12, TintColor = Color3.fromRGB(246, 250, 255) },
-		Grade = { Brightness = -0.008, Contrast = 0.12, Saturation = -0.06, TintColor = Color3.fromRGB(244, 248, 254) },
+		-- Hard desat — Roblox materials are aggressively oversaturated relative
+		-- to what a real sensor captures. -0.22 / -0.10 reads as "real footage"
+		-- once it stacks with the Vibrance slider (-25..-35 at Ultra/Max) and
+		-- the now-neutral ACES tonemap. Total saturation reduction ~-0.45.
+		Main  = { Brightness = -0.015, Contrast = 0.32, Saturation = -0.22, TintColor = Color3.fromRGB(246, 250, 255) },
+		Grade = { Brightness = -0.008, Contrast = 0.14, Saturation = -0.10, TintColor = Color3.fromRGB(244, 248, 254) },
 		AmbientShift = { -3,   0,   6 },
 	},
 	-- Neon-soaked magenta/cyan grade. Crushes mids, lifts highlights into
@@ -339,7 +347,11 @@ local Profile = {
 	Bloom = {
 		Intensity = 0.60,
 		Size      = 22,
-		Threshold = 2.0,
+		-- Threshold raised 2.0 → 2.4 so only the brightest pixels bloom. Lower
+		-- thresholds caused mid-bright Roblox materials to glow, which read as
+		-- "oversaturated highlights". Higher threshold = bloom on lights / sun /
+		-- neon only = real HDR feel.
+		Threshold = 2.4,
 	},
 	SunRays = {
 		Intensity = 0.32,
@@ -3072,13 +3084,17 @@ end
 -- adjustment that simulates a tonemap curve.
 -- =========================================================================
 
+-- Tonemaps: contrast curves only — Saturation kept at ZERO for the cinematic
+-- tonemaps (ACES/Filmic/Reinhard) because the Photorealistic preset + Vibrance
+-- slider already manage saturation. Adding extra sat here was undoing the
+-- desat work everywhere else and making the scene look oversaturated.
 local TONEMAPS = {
 	Linear    = { Brightness = 0.0,   Contrast = 0.0,  Saturation = 0.0  },
-	Filmic    = { Brightness = 0.005, Contrast = 0.06, Saturation = 0.03 },
-	ACES      = { Brightness = -0.01, Contrast = 0.10, Saturation = 0.06 },
-	Punchy    = { Brightness = 0.0,   Contrast = 0.14, Saturation = 0.10 },
-	Reinhard  = { Brightness = 0.0,   Contrast = 0.04, Saturation = 0.02 },  -- gentle classic
-	Cinematic = { Brightness = -0.02, Contrast = 0.16, Saturation = 0.08 },  -- deep contrast film
+	Filmic    = { Brightness = 0.005, Contrast = 0.07, Saturation = 0.0  },
+	ACES      = { Brightness = -0.01, Contrast = 0.12, Saturation = 0.0  },
+	Punchy    = { Brightness = 0.0,   Contrast = 0.16, Saturation = 0.08 },  -- stylised only
+	Reinhard  = { Brightness = 0.0,   Contrast = 0.05, Saturation = 0.0  },
+	Cinematic = { Brightness = -0.02, Contrast = 0.18, Saturation = 0.04 },  -- deep contrast, mild sat
 }
 
 function PlayerHighlight.update()
@@ -4292,12 +4308,12 @@ local GodRays = {}
 local TAG_GOD_RAY    = "Cinematic_GodRay"
 local godRayContainer
 local godRayBeams    = {}
-local GOD_RAY_COLS   = 11      -- horizontal grid count (perpendicular to sun)
-local GOD_RAY_ROWS   = 9       -- vertical grid count
-local GOD_RAY_TOTAL  = GOD_RAY_COLS * GOD_RAY_ROWS   -- 99 beams
-local GOD_RAY_SPACING_H = 14   -- horizontal stud spacing
-local GOD_RAY_SPACING_V = 14   -- vertical stud spacing
-local GOD_RAY_LENGTH    = 220  -- how long each beam is along sun direction
+local GOD_RAY_COLS   = 15      -- horizontal grid count (perpendicular to sun)
+local GOD_RAY_ROWS   = 12      -- vertical grid count
+local GOD_RAY_TOTAL  = GOD_RAY_COLS * GOD_RAY_ROWS   -- 180 beams, dense field
+local GOD_RAY_SPACING_H = 11   -- tighter packing
+local GOD_RAY_SPACING_V = 11
+local GOD_RAY_LENGTH    = 260  -- longer rays = more screen real estate covered
 
 function GodRays.build()
 	if godRayContainer and godRayContainer.Parent then return end
@@ -4330,8 +4346,8 @@ function GodRays.build()
 		beam.FaceCamera     = true
 		beam.LightInfluence = 0
 		beam.LightEmission  = 1
-		beam.Width0         = 5
-		beam.Width1         = 7
+		beam.Width0         = 7
+		beam.Width1         = 9
 		beam.Segments       = 6
 		beam.Color          = ColorSequence.new(Color3.fromRGB(255, 245, 215))
 		beam.Transparency   = NumberSequence.new(1)
@@ -4410,8 +4426,9 @@ function GodRays.update(dt)
 	local weather      = PostFX.getWeather()
 	local moodGlare    = (PostFX.getMood().glare or 1)
 	local visibility   = dayBlend * (weather.density or 1) * moodGlare * State.GodRaysIntensity
-	-- Base per-ray opacity (peak at beam center; falls off at ends)
-	local basePeak     = 0.18 * visibility
+	-- Peak opacity per ray boosted 0.18 → 0.40 — the rays now actually
+	-- read as visible light shafts instead of subtle hints.
+	local basePeak     = 0.40 * visibility
 
 	local t = os.clock()
 	for _, ray in ipairs(godRayBeams) do
@@ -4501,24 +4518,79 @@ end
 
 function API.setColorPreset(name)
 	if not ColorPresets[name] then return end
+	local prev = State.ColorPreset
 	State.ColorPreset = name
+
+	-- ===== GTA NIGHT MODE =====
+	-- Picking the "GTA Night" preset isn't just a colour grade — it's a full
+	-- night-time atmosphere switch. Real GTA V night = wet asphalt reflecting
+	-- neon, heavy volumetric fog, visible streetlamp/headlight cones, deep
+	-- vignette, force-to-night clock. Enabling all of that automatically when
+	-- the user picks the preset means one tap → full GTA aesthetic.
+	if name == "GTA Night" and prev ~= "GTA Night" then
+		State.Wetness            = 0.78   -- wet streets reflecting neon
+		State.Reflection         = 1.4    -- punch reflections HARD
+		State.NightBeams         = true   -- visible streetlamp / headlight cones
+		State.LightEnhance       = true   -- per-light shadows for cinematic lighting
+		State.Vignette           = true   -- heavy frame darkening
+		State.LensFlare          = true
+		State.WeatherMood        = true
+		State.MotionBlur         = true
+		State.EyeAdaptation      = true
+		State.VolumetricFog      = true   -- atmospheric haze catching light
+		State.VolumetricDensity  = 1.6    -- thicker than default
+		State.FilmGrain          = true
+		State.FilmGrainAmount    = 0.20
+		State.TimeMode           = "Night"
+		-- Slight chromatic aberration on the neon edges (GTA V uses this heavily)
+		State.ChromaticAberration = true
+		State.ChromaticAmount    = 0.40
+		-- Sun-based effects are pointless at night, turn them off
+		State.GodRays            = false
+		State.SunDisc            = false
+		State.LightLeaks         = false  -- those are golden-hour leaks, not night
+
+		pcall(function()
+			showToast("GTA NIGHT MODE — wet streets, neon beams, atmospheric fog. Force-time set to night.", 6)
+		end)
+
+		if State.Enabled then
+			-- Materials need a re-scan so wet overlays repopulate
+			Reflections.repopulate()
+			Reflections.updateAll()
+			-- Push lighting + post FX changes
+			LightingMod.applyProfile(0.8)
+			PostFX.applyIntensity(0.8)
+			VolFog.setEnabled(true)
+			FilmGrain.setEnabled(true)
+			GodRays.setEnabled(false)
+			SunDisc.setEnabled(false)
+			ChromaticAberration.apply(0.4)
+			return  -- early return, lighting/postfx already pushed
+		end
+	end
+
 	if not State.Enabled then return end
 	LightingMod.applyProfile(0.6)
 	PostFX.applyIntensity(0.6)
 end
 
-function API.setQuality(name)
-	if not QualityProfiles[name] then return end
-	local prev = State.Quality
-	State.Quality = name
+-- One-tap GTA Night activation. Available on _G.CinematicShader.activateGTANight()
+function API.activateGTANight()
+	State.Enabled = true
+	-- Force-cycle off GTA Night so the trigger inside setColorPreset fires
+	if State.ColorPreset == "GTA Night" then
+		State.ColorPreset = "Photorealistic"
+	end
+	API.setColorPreset("GTA Night")
+end
 
-	-- ===== ULTRA & MAX: PHOTOREALISTIC MODE =====
-	-- Both tiers auto-engage the entire realism stack so the visual jump
-	-- matches the rendering cost. Max goes harder on every tunable knob and
-	-- surfaces the GPU warning toast. There's no automatic FPS-based
-	-- downgrade — if Max is too heavy, the user drops the tier manually.
-	if (name == "Ultra" or name == "Max") and prev ~= name then
-		local isMax = (name == "Max")
+-- Shared "engage the full realism stack" helper. Called from setQuality when
+-- the user picks Ultra/Max, AND from init() when the shader starts already at
+-- Ultra/Max (default), so the photorealistic look is active from frame 1
+-- instead of waiting for a manual quality cycle.
+local function engageRealismStack(isMax, showStartupToast)
+	if showStartupToast then
 		pcall(function()
 			if isMax then
 				showToast("MAX MODE: Nvidia RTX-class GPU recommended. Full realism stack at maximum — expect severe FPS impact. If your hardware can't sustain it, manually drop to Ultra or High.", 10)
@@ -4526,80 +4598,83 @@ function API.setQuality(name)
 				showToast("ULTRA: photorealistic realism stack engaged.", 5)
 			end
 		end)
+	end
 
-		-- Base feature flags — both tiers turn everything on
-		State.RayTrace        = true
-		State.MultiBounceRT   = true
-		State.FresnelOverlays = true
-		State.NightBeams      = true
-		State.LightEnhance    = true
-		State.MotionBlur      = true
-		State.EyeAdaptation   = true
-		State.Vignette        = true
-		State.LensFlare       = true
-		State.WeatherMood     = true
-		State.AutoFocus       = true
-		State.CameraFillLight = true
-		State.FoliageEnhance  = true
-		State.FireEnhance     = true
-		State.SmokeEnhance    = true
-		State.SparklesEnhance = true
-		State.WaterEnhance    = true
-		State.CinematicMode   = true
-		State.GForce          = true
+	-- Base feature flags — both tiers turn everything on
+	State.RayTrace        = true
+	State.MultiBounceRT   = true
+	State.FresnelOverlays = true
+	State.NightBeams      = true
+	State.LightEnhance    = true
+	State.MotionBlur      = true
+	State.EyeAdaptation   = true
+	State.Vignette        = true
+	State.LensFlare       = true
+	State.WeatherMood     = true
+	State.AutoFocus       = true
+	State.CameraFillLight = true
+	State.FoliageEnhance  = true
+	State.FireEnhance     = true
+	State.SmokeEnhance    = true
+	State.SparklesEnhance = true
+	State.WaterEnhance    = true
+	State.CinematicMode   = true
+	State.GForce          = true
 
-		-- Realism stack modules
-		State.EnhancedGI         = true
-		State.SSAO               = true
-		State.AnisotropicMetals  = true
-		State.VolumetricFog      = true
-		State.Caustics           = true
-		State.SunDisc            = true
-		State.FilmGrain          = true
-		State.DustMotes          = true
-		State.LightLeaks         = true
-		State.LensDirt           = true
-		State.RainDroplets       = true   -- shows only during Stormy weather, harmless otherwise
-		State.GodRays            = true   -- VISIBLE sun shafts — the main "ray tracing rays" effect
-		State.GodRaysIntensity   = isMax and 1.3 or 1.0
-		-- Chromatic aberration is heavier and reads "stylised"; Max gets it
-		-- by default, Ultra leaves it off (user can toggle on if wanted).
-		State.ChromaticAberration = isMax
+	-- Realism stack modules
+	State.EnhancedGI         = true
+	State.SSAO               = true
+	State.AnisotropicMetals  = true
+	State.VolumetricFog      = true
+	State.Caustics           = true
+	State.SunDisc            = true
+	State.FilmGrain          = true
+	State.DustMotes          = true
+	State.LightLeaks         = true
+	State.LensDirt           = true
+	State.RainDroplets       = true
+	State.GodRays            = true
+	State.GodRaysIntensity   = isMax and 1.5 or 1.2
+	State.ChromaticAberration = isMax
 
-		-- Photographic-neutral colour grade. Real footage is rarely as saturated
-		-- as default Roblox; pull vibrance DOWN aggressively, lift gain
-		-- moderately, keep white balance pure neutral daylight (6500K). Result
-		-- reads as "captured by a sensor" instead of "engine default".
-		--   • Vibrance pushed harder (-18 Max / -12 Ultra). Roblox materials
-		--     start oversaturated relative to real surfaces; this gets them
-		--     back into reference range.
-		--   • Lift slightly negative so shadows go DEEP (real cameras crush
-		--     blacks; lifted-shadow look is what makes the image read flat /
-		--     game-engine-y).
-		--   • Gain modest — too high blows out highlights into yellow.
-		State.WhiteBalance       = 6500
-		State.WBTint             = 0
-		State.HueShift           = 0
-		State.Vibrance           = isMax and -18 or -12
-		State.Lift               = isMax and -0.02 or -0.01
-		State.Gamma              = 1.0
-		State.Gain               = isMax and 1.08 or 1.04
-		State.FilmGrainAmount    = isMax and 0.22 or 0.14
-		State.ChromaticAmount    = isMax and 0.35 or 0.0
-		State.VolumetricDensity  = isMax and 1.30 or 1.05
-		State.SSAOIntensity      = isMax and 0.75 or 0.60
+	-- ===== PHOTOREALISTIC GRADE — saturation crushed =====
+	-- Roblox materials are HEAVILY oversaturated relative to real surfaces.
+	-- Previous values (-12/-18 Vibrance) were too gentle — bumped to -25/-35
+	-- so the desat actually reads. Combined with the Photoreal preset
+	-- (Saturation -0.22/-0.10) and ACES tonemap (now 0 sat) the net is
+	-- ~-0.45 saturation for Ultra and ~-0.55 for Max. That's "real footage" range.
+	State.WhiteBalance       = 6500
+	State.WBTint             = 0
+	State.HueShift           = 0
+	State.Vibrance           = isMax and -35 or -25
+	State.Lift               = isMax and -0.03 or -0.02
+	State.Gamma              = 1.0
+	State.Gain               = isMax and 1.06 or 1.03
+	State.FilmGrainAmount    = isMax and 0.22 or 0.14
+	State.ChromaticAmount    = isMax and 0.30 or 0.0
+	State.VolumetricDensity  = isMax and 1.30 or 1.05
+	State.SSAOIntensity      = isMax and 0.75 or 0.60
 
-		-- Auto-promote grade and tonemap to photoreal/cinematic. Leave the
-		-- user's pick alone if it's a deliberate stylised look.
-		if State.ColorPreset == "Neutral"
-			or State.ColorPreset == "Enhanced"
-			or State.ColorPreset == "Cinematic"
-			or State.ColorPreset == "Realistic" then
-			State.ColorPreset = "Photorealistic"
-		end
-		if State.Tonemap == "Linear" or State.Tonemap == "Filmic" or State.Tonemap == "Reinhard" then
-			State.Tonemap = "ACES"
-		end
+	-- Auto-promote grade and tonemap to photoreal/cinematic. Leave the
+	-- user's pick alone if it's a deliberate stylised look.
+	if State.ColorPreset == "Neutral"
+		or State.ColorPreset == "Enhanced"
+		or State.ColorPreset == "Cinematic"
+		or State.ColorPreset == "Realistic" then
+		State.ColorPreset = "Photorealistic"
+	end
+	if State.Tonemap == "Linear" or State.Tonemap == "Filmic" or State.Tonemap == "Reinhard" then
+		State.Tonemap = "ACES"
+	end
+end
+
+function API.setQuality(name)
+	if not QualityProfiles[name] then return end
+	local prev = State.Quality
+	State.Quality = name
+
+	if (name == "Ultra" or name == "Max") and prev ~= name then
+		engageRealismStack(name == "Max", true)
 	end
 
 	if not State.Enabled then return end
@@ -5503,6 +5578,11 @@ function UI.tryRayfield()
 			Callback = function() API.activateRTX() end,
 		})
 
+		RTX:CreateButton({
+			Name = "🌃 ACTIVATE GTA NIGHT MODE",
+			Callback = function() API.activateGTANight() end,
+		})
+
 		RTX:CreateLabel("--- Visible Light Shafts ---")
 
 		RTX:CreateToggle({
@@ -6178,6 +6258,7 @@ function UI.buildFallback()
 	-- ===== RTX TAB — advanced realism stack =====
 	local rt = tabPages.RTX
 	makeButton(rt, "* ACTIVATE RTX MODE *",      Color3.fromRGB(180, 60, 200), function() API.activateRTX() end)
+	makeButton(rt, "* GTA NIGHT MODE *",         Color3.fromRGB(40, 50, 130),  function() API.activateGTANight() end)
 	makeToggle(rt, "God Rays (sun shafts)",      State.GodRays,            function(s) API.setGodRays(s) end)
 	makeSlider(rt, "God Rays Intensity",  {0, 2},  State.GodRaysIntensity, "%.2fx", function(x) API.setGodRaysIntensity(x) end)
 	makeToggle(rt, "Enhanced GI",                State.EnhancedGI,         function(s) API.setEnhancedGI(s) end)
@@ -6379,6 +6460,28 @@ local function init()
 	GodRays.build()
 	print("[UltraShader] - RTX stack built")
 
+	-- ===== FIRE THE REALISM STACK ON STARTUP =====
+	-- Default Quality is "Ultra", but setQuality's auto-engage only fires when
+	-- the tier CHANGES. Without this call you'd start at Ultra with every
+	-- realism module FALSE in State (default), so the photoreal look never
+	-- engages until you cycle to a different tier and back. Fire it here so
+	-- the moment the shader loads at Ultra/Max you get the full stack.
+	if State.Quality == "Ultra" or State.Quality == "Max" then
+		engageRealismStack(State.Quality == "Max", false)  -- silent on boot (no toast)
+		-- Push the state to the engine
+		AdvancedColor.apply(0)
+		ChromaticAberration.apply(0)
+		FilmGrain.setEnabled(State.FilmGrain)
+		SunDisc.setEnabled(State.SunDisc)
+		VolFog.setEnabled(State.VolumetricFog)
+		Caustics.setEnabled(State.Caustics)
+		DustMotes.setEnabled(State.DustMotes)
+		if leakGui then leakGui.Enabled = State.LightLeaks end
+		if dirtGui then dirtGui.Enabled = State.LensDirt end
+		GodRays.setEnabled(State.GodRays)
+		print(string.format("[UltraShader] - realism stack engaged on boot (%s)", State.Quality))
+	end
+
 	-- Bind the main per-frame loop now that every module is defined.
 	track(RunService.RenderStepped:Connect(function(dt)
 		AdaptiveQuality.sample(dt)   -- still tracked for the PerfHUD readout
@@ -6415,25 +6518,34 @@ local function init()
 	end))
 	print("[UltraShader] - RenderStepped bound")
 
-	-- UI: try Rayfield first on desktop, but force the mobile-friendly
-	-- fallback panel on touch-only devices. Rayfield ships a desktop-first
-	-- layout that often half-loads on phones (panel renders off-screen, the
-	-- keybind toggle has no equivalent, drag handles fight the touch input).
-	-- Our fallback UI was built explicitly for touch and has every option.
-	local isTouchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-	local rayfieldOk = false
-	if not isTouchOnly then
-		pcall(function() rayfieldOk = UI.tryRayfield() end)
-	end
+	-- UI: ALWAYS try Rayfield first AND ALWAYS build the fallback panel as a
+	-- safety net. Rayfield can silently fail (HTTP timeout, executor blocking
+	-- loadstring-within-loadstring, sirius.menu down, etc.) — if that happens
+	-- the floating ☰ toggle from the fallback gives the user a way in
+	-- regardless. Detailed error logging surfaces WHY Rayfield failed so
+	-- this isn't a black box.
+	local rayfieldOk, rayfieldErr = false, nil
+	local ok, err = pcall(function() rayfieldOk = UI.tryRayfield() end)
+	if not ok then rayfieldErr = err end
+
 	if rayfieldOk then
 		print("[UltraShader] - Rayfield UI loaded")
 	else
-		local fbOk, fbErr = pcall(UI.buildFallback)
-		if fbOk then
-			print("[UltraShader] - fallback UI built" .. (isTouchOnly and " (mobile)" or ""))
+		if rayfieldErr then
+			warn("[UltraShader] Rayfield load error: " .. tostring(rayfieldErr))
 		else
-			warn("[UltraShader] Fallback UI failed: " .. tostring(fbErr))
+			print("[UltraShader] - Rayfield unavailable (HTTP/executor restriction), using fallback")
 		end
+	end
+
+	-- Always build the fallback panel + floating toggle button. If Rayfield
+	-- is up, the fallback panel stays hidden until the user taps ☰; if
+	-- Rayfield isn't up, the fallback is the only UI.
+	local fbOk, fbErr = pcall(UI.buildFallback)
+	if fbOk then
+		print("[UltraShader] - fallback UI built" .. (rayfieldOk and " (backup)" or ""))
+	else
+		warn("[UltraShader] Fallback UI failed: " .. tostring(fbErr))
 	end
 
 	State.Initialized = true
@@ -6561,7 +6673,8 @@ _G.CinematicShader = {
 	export    = function() return API.exportPreset() end,
 	import    = function(s) return API.importPreset(s) end,
 	activateRTX = function() return API.activateRTX() end,
-	version   = "Cinematic-4.0-RTX",
+	activateGTANight = function() return API.activateGTANight() end,
+	version   = "Cinematic-4.1-RTX",
 }
 
 init()
