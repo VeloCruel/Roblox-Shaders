@@ -111,8 +111,8 @@ local State = {
 
     -- Quality + look
     Quality       = "Ultra",
-    ColorPreset   = "Photorealistic",
-    Tonemap       = "ACES",
+    ColorPreset   = "NaturalVision",
+    Tonemap       = "Cinematic",
     Weather       = "Clear",
     TimeMode      = "Auto",
 
@@ -148,14 +148,15 @@ local State = {
     CinematicMode     = false,
     PerfHUD           = false,
 
-    -- Advanced color
+    -- Advanced color — Vibrance default +8 so colors pop slightly; Gain 1.04
+    -- gives highlights a touch more punch out of the box.
     WhiteBalance      = 6500,
     WBTint            = 0,
-    Vibrance          = 0,
+    Vibrance          = 8,
     HueShift          = 0,
-    Lift              = 0,
+    Lift              = -0.01,
     Gamma             = 1.0,
-    Gain              = 1.0,
+    Gain              = 1.04,
     Sharpness         = 0.0,
 
     -- Realism stack — flipped on by Ultra/Max
@@ -182,8 +183,9 @@ local State = {
     DistanceHaze       = true,
     CityNightGlow      = true,
 
-    -- Adaptive
-    AdaptiveQuality    = true,
+    -- Adaptive — OFF by default. User opted in to "make RTX 5090 struggle";
+    -- the system will not auto-downgrade. Toggle on from the UI if you want it.
+    AdaptiveQuality    = false,
     TargetFPS          = 50,
 }
 
@@ -295,15 +297,19 @@ Cfg.Lighting = {
     ShadowSoftness           = 0.13,
 }
 
+-- Atmosphere — Density bumped 0.20 → 0.38 for visible distance haze at midday.
+-- Glare 0.20 → 0.40 so the sun actually creates lens-glare punch.
 Cfg.Atmosphere = {
-    Density = 0.20, Offset = 0.38,
-    Color   = Color3.fromRGB(212, 212, 212),
+    Density = 0.38, Offset = 0.38,
+    Color   = Color3.fromRGB(212, 218, 226),
     Decay   = Color3.fromRGB(115, 115, 115),
-    Glare   = 0.20, Haze = 1.35,
+    Glare   = 0.40, Haze = 1.85,
 }
 
-Cfg.Bloom        = { Intensity = 0.60, Size = 22, Threshold = 2.40 }
-Cfg.SunRays      = { Intensity = 0.32, Spread = 0.97 }
+-- BLOOM tuned for visible glow on bright signs/lights at midday. Threshold
+-- 1.50 instead of 2.40 so neon, white text, and chrome actually bloom.
+Cfg.Bloom        = { Intensity = 0.95, Size = 24, Threshold = 1.50 }
+Cfg.SunRays      = { Intensity = 0.45, Spread = 0.98 }
 Cfg.DepthOfField = { FarIntensity = 0.22, FocusDistance = 80, InFocusRadius = 50, NearIntensity = 0 }
 
 Cfg.Reflectance  = { Floor = 0.20, Glass = 0.55, Metal = 0.32, Surface = 0.03 }
@@ -316,22 +322,27 @@ Cfg.Detection = {
     OverlayMaxCount = 800,
 }
 
+-- Performance — high budgets to chew through large places fast. Adaptive is
+-- opt-in only (see State.AdaptiveQuality default = false).
 Cfg.Performance = {
-    ProcessBudget    = 80,
-    ScanBatch        = 250,
+    ProcessBudget    = 240,
+    ScanBatch        = 500,
     AdaptiveCheckSec = 5,
-    AdaptiveThresholds = { Max = 48, Ultra = 38, High = 26, Medium = 16, Low = 0 },
+    AdaptiveThresholds = { Max = 30, Ultra = 22, High = 14, Medium = 8, Low = 0 },
     AdaptiveOrder    = { "Max", "Ultra", "High", "Medium", "Low" },
 }
 
 Cfg.Tween = { Default = 0.8, Fast = 0.35, Slow = 1.4 }
 
+-- Quality tiers — caps removed at Max. User explicitly opted into GPU stress.
 Cfg.Quality = {
-    Low    = { OverlayEnabled = false, BloomMul = 0.6,  AtmosMul = 0.7,  DOFMul = 0.0,  ShadowSoft = 0.45, Spec = 0.55, Diff = 0.35, TracesPerTick = 0,  OverlayMax = 0,    BeamMax = 0,    TraceDist = 0,   ExposureBoost = 0,    Photoreal = false },
-    Medium = { OverlayEnabled = false, BloomMul = 0.9,  AtmosMul = 1.0,  DOFMul = 0.0,  ShadowSoft = 0.28, Spec = 0.75, Diff = 0.48, TracesPerTick = 0,  OverlayMax = 0,    BeamMax = 100,  TraceDist = 0,   ExposureBoost = 0,    Photoreal = false },
-    High   = { OverlayEnabled = true,  BloomMul = 1.0,  AtmosMul = 1.0,  DOFMul = 0.4,  ShadowSoft = 0.14, Spec = 0.95, Diff = 0.55, TracesPerTick = 5,  OverlayMax = 800,  BeamMax = 250,  TraceDist = 130, ExposureBoost = 0.02, Photoreal = false },
-    Ultra  = { OverlayEnabled = true,  BloomMul = 1.35, AtmosMul = 1.18, DOFMul = 0.85, ShadowSoft = 0.02, Spec = 1.0,  Diff = 0.72, TracesPerTick = 12, OverlayMax = 2000, BeamMax = 500,  TraceDist = 200, ExposureBoost = 0.06, Photoreal = true  },
-    Max    = { OverlayEnabled = true,  BloomMul = 1.75, AtmosMul = 1.45, DOFMul = 1.20, ShadowSoft = 0.0,  Spec = 1.0,  Diff = 0.95, TracesPerTick = 32, OverlayMax = 4500, BeamMax = 1200, TraceDist = 320, ExposureBoost = 0.18, Photoreal = true  },
+    Low    = { OverlayEnabled = false, BloomMul = 0.6,  AtmosMul = 0.7,  DOFMul = 0.0,  ShadowSoft = 0.45, Spec = 0.55, Diff = 0.35, TracesPerTick = 0,    OverlayMax = 0,     BeamMax = 0,     TraceDist = 0,    ExposureBoost = 0,    Photoreal = false },
+    Medium = { OverlayEnabled = false, BloomMul = 0.9,  AtmosMul = 1.0,  DOFMul = 0.0,  ShadowSoft = 0.28, Spec = 0.75, Diff = 0.48, TracesPerTick = 0,    OverlayMax = 0,     BeamMax = 100,   TraceDist = 0,    ExposureBoost = 0,    Photoreal = false },
+    High   = { OverlayEnabled = true,  BloomMul = 1.0,  AtmosMul = 1.0,  DOFMul = 0.4,  ShadowSoft = 0.14, Spec = 0.95, Diff = 0.55, TracesPerTick = 8,    OverlayMax = 1500,  BeamMax = 500,   TraceDist = 180,  ExposureBoost = 0.03, Photoreal = false },
+    Ultra  = { OverlayEnabled = true,  BloomMul = 1.50, AtmosMul = 1.25, DOFMul = 0.95, ShadowSoft = 0.02, Spec = 1.0,  Diff = 0.80, TracesPerTick = 24,   OverlayMax = 5000,  BeamMax = 1500,  TraceDist = 280,  ExposureBoost = 0.08, Photoreal = true  },
+    -- Max tier — UNCAPPED. ~16k overlays, 5k beams, 128 raycasts/frame, 800-stud
+    -- trace range. Designed to make an RTX 5090 sweat. No auto-downgrade.
+    Max    = { OverlayEnabled = true,  BloomMul = 2.00, AtmosMul = 1.60, DOFMul = 1.40, ShadowSoft = 0.0,  Spec = 1.0,  Diff = 1.0,  TracesPerTick = 128,  OverlayMax = 16000, BeamMax = 5000,  TraceDist = 800,  ExposureBoost = 0.22, Photoreal = true  },
 }
 
 Cfg.FloorMats = {
@@ -460,15 +471,19 @@ local ColorPresets = {
         Grade = { Brightness = -0.01, Contrast = 0.12, Saturation = 0.10, TintColor = Color3.fromRGB(190,230,240) },
         AmbientShift = { 5, 0, -8 },
     },
+    -- NaturalVision Evolved — the GTA V "wow" look. Punchy contrast, slight
+    -- warm shift, mild teal/orange split, NOT desaturated. This is the new
+    -- default because Photorealistic was deliberately neutral.
     NaturalVision = {
-        Main  = { Brightness = -0.01, Contrast = 0.30, Saturation = -0.10, TintColor = Color3.fromRGB(248,251,255) },
-        Grade = { Brightness = -0.01, Contrast = 0.12, Saturation = -0.04, TintColor = Color3.fromRGB(246,250,255) },
-        AmbientShift = { -2, 1, 5 },
+        Main  = { Brightness = 0.01,  Contrast = 0.38, Saturation = 0.14, TintColor = Color3.fromRGB(255,246,232) },
+        Grade = { Brightness = -0.01, Contrast = 0.18, Saturation = 0.08, TintColor = Color3.fromRGB(248,236,210) },
+        AmbientShift = { 8, 2, -6 },
     },
+    -- QuantV — heavier contrast, warm sun side, cool shadow side.
     QuantV = {
-        Main  = { Brightness = 0.00,  Contrast = 0.36, Saturation = 0.04,  TintColor = Color3.fromRGB(252,248,242) },
-        Grade = { Brightness = -0.02, Contrast = 0.16, Saturation = 0.02,  TintColor = Color3.fromRGB(255,242,224) },
-        AmbientShift = { 6, 2, -4 },
+        Main  = { Brightness = 0.00,  Contrast = 0.42, Saturation = 0.10, TintColor = Color3.fromRGB(255,244,222) },
+        Grade = { Brightness = -0.02, Contrast = 0.20, Saturation = 0.06, TintColor = Color3.fromRGB(255,240,210) },
+        AmbientShift = { 10, 4, -8 },
     },
 }
 
@@ -1182,13 +1197,20 @@ end
 -- 18. CAMERA FX — sway, sprint FOV, impact shake, motion blur, eye adapt,
 --      autofocus, GForce camera tilt, fresnel overlay update
 -- ===========================================================================
+-- CAMERA system. Critical: all FOV-affecting effects compute a DELTA against
+-- a single base FOV; we then write `base + sum(deltas)` once per frame. This
+-- avoids the FOV-feedback bug where each effect's read-modify-write compounds.
 local Cam = {}
 local _camera = Workspace.CurrentCamera
-local _swayPhase = 0
-local _lastCamPos = nil
-local _shakeIntensity = 0
-local _shakeDecay = 4.0  -- per second
-local _swayBaseFOV  = nil
+local _swayPhase   = 0
+local _lastCamPos  = nil
+local _shake       = 0     -- current shake amplitude (decays each frame)
+local _shakeDecay  = 5.0
+local _speedDelta  = 0     -- additive +FOV from sprint
+local _swayDelta   = 0     -- additive +FOV from breathing motion
+local _shakeDelta  = 0     -- additive +FOV from impact shake
+local _gforceDelta = 0     -- additive +FOV from lateral G
+local _lastVel     = Vec3New()
 local _eyeAdaptBias = 0
 
 local function getCamera()
@@ -1199,53 +1221,45 @@ end
 function Cam.init()
     local c = getCamera()
     if c and not OriginalFOV then OriginalFOV = c.FieldOfView end
-    _swayBaseFOV = OriginalFOV or 70
 end
 
--- Sprint detection: by humanoid MoveDirection magnitude + speed.
+-- SPEED FOV — produces a target delta; the actual FOV apply happens later.
 function Cam.updateSpeedFOV(dt)
-    if not State.Enabled or not State.SpeedFOV then return end
-    local c = getCamera(); if not c then return end
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-    local moving = hum.MoveDirection.Magnitude > 0.05
-    local speed = hum.WalkSpeed
-    local sprinting = speed > 18 and moving
-    local target = sprinting and ((_swayBaseFOV or 70) + 8) or (_swayBaseFOV or 70)
-    if State.CinematicMode then target = target - 8 end
-    c.FieldOfView = Util.lerp(c.FieldOfView, target, mathClamp(dt * 4, 0, 1))
+    local target = 0
+    if State.Enabled and State.SpeedFOV then
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            local moving = hum.MoveDirection.Magnitude > 0.05
+            if moving and hum.WalkSpeed > 18 then target = target + 8 end
+        end
+    end
+    if State.CinematicMode then target = target - 6 end
+    _speedDelta = Util.lerp(_speedDelta, target, mathClamp(dt * 4, 0, 1))
 end
 
--- Camera sway: subtle breathing motion. Apply via CFrame offset relative
--- to current camera orientation, only meaningful in 1st-person / locked cam.
+-- SWAY — gentle breathing motion in the FOV (±0.18°).
 function Cam.updateSway(dt)
-    if not State.Enabled or not State.CameraSway then return end
-    local c = getCamera(); if not c then return end
-    _swayPhase = _swayPhase + dt
-    -- Don't overwrite camera CFrame — Roblox player camera will fight us.
-    -- Instead nudge FOV very subtly for a breathing feel.
-    local baseFOV = c.FieldOfView
-    local sway = mathSin(_swayPhase * 1.4) * 0.12
-    c.FieldOfView = baseFOV + sway
+    if State.Enabled and State.CameraSway then
+        _swayPhase = _swayPhase + dt
+        _swayDelta = mathSin(_swayPhase * 1.4) * 0.18
+    else
+        _swayDelta = 0
+    end
 end
 
--- Impact shake: external code can call _G.CinematicShader.api.shake(0.5)
--- to inject a quick decaying shake. We modulate ROLL only (not position,
--- which would fight Roblox's camera controller).
 function Cam.applyShake(amount)
-    _shakeIntensity = mathMax(_shakeIntensity, amount or 0.5)
+    _shake = mathMax(_shake, amount or 0.5)
 end
 
 function Cam.updateImpactShake(dt)
-    if not State.Enabled or not State.ImpactShake then _shakeIntensity = 0; return end
-    if _shakeIntensity <= 0 then return end
-    local c = getCamera(); if not c then return end
-    -- decay
-    _shakeIntensity = mathMax(0, _shakeIntensity - dt * _shakeDecay)
-    -- Apply only when camera is in scriptable mode or follow mode using FOV jiggle
-    local jitter = (math.random() - 0.5) * _shakeIntensity * 1.2
-    c.FieldOfView = c.FieldOfView + jitter
+    if not State.Enabled or not State.ImpactShake then _shake, _shakeDelta = 0, 0; return end
+    _shake = mathMax(0, _shake - dt * _shakeDecay)
+    if _shake > 0 then
+        _shakeDelta = (math.random() - 0.5) * _shake * 1.5
+    else
+        _shakeDelta = 0
+    end
 end
 
 -- Motion blur: velocity-driven BlurEffect.Size
@@ -1327,21 +1341,29 @@ function Cam.updateFresnelOverlays(dt)
     end
 end
 
--- GForce: subtle camera roll on lateral acceleration (vehicles).
-local _lastVel = Vec3New()
+-- G-FORCE — subtle FOV punch on lateral acceleration. Stored as a delta.
 function Cam.updateGForce(dt)
-    if not State.Enabled or not State.GForce then return end
-    local c = getCamera(); if not c then return end
+    if not State.Enabled or not State.GForce then _gforceDelta = 0; return end
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+    if not hrp then _gforceDelta = 0; return end
     local v = hrp.AssemblyLinearVelocity
     local accel = (v - _lastVel) / mathMax(dt, 1e-3)
     _lastVel = v
-    -- We can't easily roll the player camera in third-person, so use FOV nudge:
     local lat = accel.Magnitude
-    local nudge = mathClamp(lat / 200, 0, 0.3)
-    c.FieldOfView = c.FieldOfView + nudge
+    local target = mathClamp(lat / 200, 0, 1.5)
+    _gforceDelta = Util.lerp(_gforceDelta, target, mathClamp(dt * 6, 0, 1))
+end
+
+-- APPLY FOV — single write per frame: base + all deltas. Stops the
+-- feedback loop where each effect read-modifies the previous frame's value.
+function Cam.applyFOV()
+    local c = getCamera(); if not c or not OriginalFOV then return end
+    if not State.Enabled then return end
+    -- FreeCam takes over CameraType=Scriptable; don't fight it.
+    if c.CameraType == Enum.CameraType.Scriptable then return end
+    local fov = OriginalFOV + _speedDelta + _swayDelta + _shakeDelta + _gforceDelta
+    c.FieldOfView = mathClamp(fov, 30, 110)
 end
 
 function Cam.restore()
@@ -1374,25 +1396,39 @@ end
 local Vignette = {}
 function Vignette.build()
     local gui = makeGui("Cinematic_Vignette", 80)
-    local f = Instance.new("Frame")
-    f.Size = UDim2.fromScale(1, 1)
-    f.BackgroundColor3 = Color3New(0, 0, 0)
-    f.BackgroundTransparency = 1
-    f.BorderSizePixel = 0
-    f.Parent = gui
-    local grad = Instance.new("UIGradient")
-    grad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3New(0,0,0)),
-        ColorSequenceKeypoint.new(0.55, Color3New(0,0,0)),
-        ColorSequenceKeypoint.new(1, Color3New(0,0,0)),
+    -- Two overlapping frames produce a proper photographic vignette: top/bottom
+    -- and left/right both fade to black at the edges. Background must be opaque
+    -- black for the UIGradient transparency to actually darken the corners.
+    local top = Instance.new("Frame")
+    top.Size = UDim2.fromScale(1, 1)
+    top.BackgroundColor3 = Color3New(0, 0, 0)
+    top.BackgroundTransparency = 0
+    top.BorderSizePixel = 0
+    top.Parent = gui
+    local gradV = Instance.new("UIGradient")
+    gradV.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0,   0.35),
+        NumberSequenceKeypoint.new(0.5, 1.00),
+        NumberSequenceKeypoint.new(1,   0.35),
     })
-    grad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.55),
-        NumberSequenceKeypoint.new(0.4, 0.95),
-        NumberSequenceKeypoint.new(1, 0.55),
+    gradV.Rotation = 90
+    gradV.Parent = top
+
+    local side = Instance.new("Frame")
+    side.Size = UDim2.fromScale(1, 1)
+    side.BackgroundColor3 = Color3New(0, 0, 0)
+    side.BackgroundTransparency = 0
+    side.BorderSizePixel = 0
+    side.Parent = gui
+    local gradH = Instance.new("UIGradient")
+    gradH.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0,   0.55),
+        NumberSequenceKeypoint.new(0.5, 1.00),
+        NumberSequenceKeypoint.new(1,   0.55),
     })
-    grad.Rotation = 90
-    grad.Parent = f
+    gradH.Rotation = 0
+    gradH.Parent = side
+
     Overlays.guis.Vignette = gui
     gui.Enabled = State.Vignette
 end
@@ -1625,8 +1661,14 @@ function VolFog.build()
     folder.Parent = Workspace
     VolFog.folder = folder
 
+    -- VolFog beam count scales with quality tier. Max gets 256 beams which
+    -- fills the camera-orbit ring densely enough to look like real atmosphere.
     local qp = Cfg.Quality[State.Quality]
-    local count = (qp.OverlayMax and qp.OverlayMax > 0) and 32 or 16
+    local count
+    if State.Quality == "Max" then count = 256
+    elseif State.Quality == "Ultra" then count = 96
+    elseif State.Quality == "High" then count = 48
+    else count = 16 end
 
     for i = 1, count do
         local p = Instance.new("Part")
@@ -1706,8 +1748,13 @@ function GodRays.build()
     folder.Parent = Workspace
     GodRays.folder = folder
 
+    -- God ray beam count scales with quality. Max = 320 beams, 240-stud reach.
     local qp = Cfg.Quality[State.Quality]
-    local count = qp.Photoreal and 80 or 40
+    local count
+    if State.Quality == "Max" then count = 320
+    elseif State.Quality == "Ultra" then count = 120
+    else count = 40 end
+    local beamReach = (State.Quality == "Max") and 240 or 120
 
     for i = 1, count do
         local p = Instance.new("Part")
@@ -1722,7 +1769,7 @@ function GodRays.build()
         p.Parent = folder
         local a0 = Instance.new("Attachment", p)
         local a1 = Instance.new("Attachment", p)
-        a1.Position = Vec3New(0, 0, -120)
+        a1.Position = Vec3New(0, 0, -beamReach)
         local beam = Instance.new("Beam")
         beam.Attachment0 = a0
         beam.Attachment1 = a1
@@ -2768,13 +2815,16 @@ local function engageRealismStack(isMax, withToast)
     State.ChromaticAmount   = isMax and 0.30 or 0.0
     State.VolumetricDensity = isMax and 1.30 or 1.05
     State.SSAOIntensity     = isMax and 0.75 or 0.60
+    -- Auto-promote bland default presets to the punchy NaturalVision look.
     if State.ColorPreset == "Neutral" or State.ColorPreset == "Enhanced"
-        or State.ColorPreset == "Cinematic" or State.ColorPreset == "Realistic" then
-        State.ColorPreset = "Photorealistic"
+        or State.ColorPreset == "Realistic" or State.ColorPreset == "Photorealistic" then
+        State.ColorPreset = "NaturalVision"
     end
-    if State.Tonemap == "Linear" or State.Tonemap == "Filmic" or State.Tonemap == "Reinhard" then
-        State.Tonemap = "ACES"
+    if State.Tonemap == "Linear" or State.Tonemap == "Reinhard" then
+        State.Tonemap = "Cinematic"
     end
+    -- Less aggressive desat than v4 — keep saturation alive for that GTA punch.
+    State.Vibrance = isMax and -12 or -6
 end
 
 function API.setQuality(name, silent)
@@ -3167,20 +3217,28 @@ function UI.build()
     local existing = PlayerGui:FindFirstChild("Cinematic_UI")
     if existing then existing:Destroy() end
     local gui = makeGui("Cinematic_UI", 1000)
-    -- Floating toggle button (always visible)
+    -- Floating toggle button — big, branded, anchored bottom-right so it
+    -- doesn't collide with the player list (top-right) or chat (top-left).
     local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.fromOffset(48, 48)
-    toggleBtn.Position = UDim2.fromOffset(16, 16)
-    toggleBtn.BackgroundColor3 = PANEL_COLOR
+    toggleBtn.AnchorPoint = Vector2.new(1, 1)
+    toggleBtn.Size = UDim2.fromOffset(64, 64)
+    toggleBtn.Position = UDim2.new(1, -20, 1, -20)
+    toggleBtn.BackgroundColor3 = ACCENT
     toggleBtn.BorderSizePixel = 0
     toggleBtn.Font = Enum.Font.GothamBold
-    toggleBtn.TextSize = 20
-    toggleBtn.TextColor3 = ACCENT
-    toggleBtn.Text = "≡"
+    toggleBtn.TextSize = 26
+    toggleBtn.TextColor3 = Color3.fromRGB(15, 18, 24)
+    toggleBtn.Text = "FX"
     toggleBtn.AutoButtonColor = true
     toggleBtn.ZIndex = 10
     local toggleCorner = Instance.new("UICorner"); toggleCorner.CornerRadius = UDim.new(1, 0); toggleCorner.Parent = toggleBtn
-    local toggleStroke = Instance.new("UIStroke"); toggleStroke.Color = PANEL_STROKE; toggleStroke.Thickness = 1; toggleStroke.Parent = toggleBtn
+    local toggleStroke = Instance.new("UIStroke"); toggleStroke.Color = Color3.fromRGB(20,30,50); toggleStroke.Thickness = 2; toggleStroke.Parent = toggleBtn
+    -- Soft glow ring around the button so it draws the eye
+    local glow = Instance.new("UIStroke")
+    glow.Color = ACCENT
+    glow.Thickness = 6
+    glow.Transparency = 0.6
+    glow.Parent = toggleBtn
     toggleBtn.Parent = gui
 
     -- Make toggle button draggable
@@ -3209,10 +3267,11 @@ function UI.build()
         end))
     end
 
-    -- Main panel
+    -- Main panel — anchored bottom-right, sits above the toggle button.
     local panel = Instance.new("Frame")
+    panel.AnchorPoint = Vector2.new(1, 1)
     panel.Size = UDim2.fromOffset(PANEL_W, PANEL_H)
-    panel.Position = UDim2.fromOffset(72, 16)
+    panel.Position = UDim2.new(1, -20, 1, -100)
     panel.BackgroundColor3 = PANEL_COLOR
     panel.BorderSizePixel = 0
     panel.Visible = false
@@ -3545,11 +3604,12 @@ local function init()
         Cam.updateSpeedFOV(dt)
         Cam.updateSway(dt)
         Cam.updateImpactShake(dt)
+        Cam.updateGForce(dt)
+        Cam.applyFOV()                 -- single write, after all deltas computed
         Cam.updateMotionBlur(dt)
         Cam.updateEyeAdaptation(dt)
         Cam.updateAutoFocus(dt)
         Cam.updateFresnelOverlays(dt)
-        Cam.updateGForce(dt)
         CamFill.update(dt)
         RT.update()
         LensFlare.update()
@@ -3603,11 +3663,36 @@ local function init()
     print(string.rep("=", 60))
     print(string.format("[Cinematic] READY — %s | %s | %s", State.Quality, State.ColorPreset, State.Tonemap))
     if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
-        print("[Cinematic] Tap the floating ≡ button to open the panel.")
+        print("[Cinematic] Tap the FX button (bottom-right) to open the panel.")
     else
-        print("[Cinematic] Press ] (or tap ≡) to toggle the panel. F to toggle free cam.")
+        print("[Cinematic] Press ] (or tap FX) to toggle the panel. F to toggle free cam.")
     end
     print(string.rep("=", 60))
+
+    -- Auto-open the panel for 6 seconds on first load so the user knows
+    -- the controls are there. After 6s it hides itself; tapping FX re-opens.
+    task.delay(0.4, function()
+        if not (UI and UI.panel) then return end
+        UI.panel.Visible = true
+        UI.panel.BackgroundTransparency = 1
+        Util.tween(UI.panel, 0.35, { BackgroundTransparency = 0 })
+        Toast.show("Cinematic v5 loaded — tap FX (bottom-right) for controls. Try ✨ ACTIVATE RTX MODE!", 6)
+    end)
+
+    -- Subtle pulsing glow on the FX button so it's noticeable
+    if UI and UI.toggleBtn then
+        local glow = UI.toggleBtn:FindFirstChildOfClass("UIStroke")
+        if glow then
+            task.spawn(function()
+                while UI.toggleBtn and UI.toggleBtn.Parent do
+                    Util.tween(glow, 1.2, { Transparency = 0.85 })
+                    task.wait(1.2)
+                    Util.tween(glow, 1.2, { Transparency = 0.4 })
+                    task.wait(1.2)
+                end
+            end)
+        end
+    end
 end
 
 -- ===========================================================================
