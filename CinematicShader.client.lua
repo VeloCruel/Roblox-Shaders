@@ -153,6 +153,19 @@ local State = {
 	SSAO               = false,
 	SSAOIntensity      = 0.6,
 	AnisotropicMetals  = false,
+
+	-- Atmospheric overlays (UI-driven, no workspace impact)
+	RainDroplets       = false,   -- auto-shown when Weather="Stormy"
+	DustMotes          = false,   -- floating particles, brightens with sun
+	LightLeaks         = false,   -- soft colored bleed during golden hour / sunset
+	LensDirt           = false,   -- subtle screen dust that blooms with bright light
+
+	-- VISIBLE sun shafts. 80 camera-facing beams aligned along the sun
+	-- direction, arranged in a grid around the camera. The thing that makes
+	-- bright-sunlight scenes read as "real" — visible rays of light streaming
+	-- through the air, brightening as they catch atmospheric dust.
+	GodRays            = false,
+	GodRaysIntensity   = 1.0,
 }
 
 local CINEMATIC_FOV       = 62
@@ -232,14 +245,56 @@ local ColorPresets = {
 		Grade = { Brightness = 0.0,   Contrast = 0.05, Saturation = 0.02,  TintColor = Color3.fromRGB(245, 232, 210) },
 		AmbientShift = { 12,   6,  -8},
 	},
-	-- Designed for "Max" quality: pulls saturation DOWN (real photographs
-	-- almost never have Roblox-default saturation), adds a film-stock contrast
-	-- curve, and keeps tints close to white. The goal is a clean window-into-
-	-- reality look rather than a stylised grade.
+	-- Photorealistic: aim for "looks like a phone camera capture, not a
+	-- video-game render". Three rules drive the values:
+	--   1) Slight COOL tint (R<B), never warm. Real sensors at neutral WB lean
+	--      a touch cyan; warm tints scream "Roblox default lighting".
+	--   2) Saturation pulled DOWN harder (real photos ~-10% vs game default).
+	--      Roblox materials are over-saturated relative to real surfaces.
+	--   3) Contrast pumped UP so highlights stay bright and shadows stay deep
+	--      — sensor-like dynamic range instead of mushy mid-tones.
+	-- AmbientShift removes warm ambient and adds a touch of cool, so sky-bounce
+	-- looks like real sky-bounce (blue) rather than warm fill.
 	Photorealistic = {
-		Main  = { Brightness = -0.02, Contrast = 0.20, Saturation = -0.08, TintColor = Color3.fromRGB(252, 250, 247) },
-		Grade = { Brightness = -0.01, Contrast = 0.09, Saturation = -0.04, TintColor = Color3.fromRGB(248, 246, 244) },
-		AmbientShift = {  4,   2,   0},
+		Main  = { Brightness = -0.015, Contrast = 0.28, Saturation = -0.12, TintColor = Color3.fromRGB(246, 250, 255) },
+		Grade = { Brightness = -0.008, Contrast = 0.12, Saturation = -0.06, TintColor = Color3.fromRGB(244, 248, 254) },
+		AmbientShift = { -3,   0,   6 },
+	},
+	-- Neon-soaked magenta/cyan grade. Crushes mids, lifts highlights into
+	-- pinks, pushes shadows into electric blue. Reads as Blade Runner / 2077.
+	Cyberpunk = {
+		Main  = { Brightness = -0.02, Contrast = 0.34, Saturation = 0.32, TintColor = Color3.fromRGB(220, 230, 255) },
+		Grade = { Brightness = -0.01, Contrast = 0.16, Saturation = 0.20, TintColor = Color3.fromRGB(255, 200, 240) },
+		AmbientShift = {-12,  -5,  14},
+	},
+	-- High-contrast desaturated film noir. Pulls saturation to nearly zero
+	-- and ramps contrast hard so the world reads almost B&W with mild warm tint.
+	Noir = {
+		Main  = { Brightness = -0.03, Contrast = 0.48, Saturation = -0.90, TintColor = Color3.fromRGB(252, 250, 244) },
+		Grade = { Brightness = 0.0,   Contrast = 0.22, Saturation = -0.25, TintColor = Color3.fromRGB(250, 248, 240) },
+		AmbientShift = {  0,   0,   0},
+	},
+	-- Oversaturated soft contrast for that cel-shaded animated-movie look.
+	-- Slight pink/magenta tint approximates the warmth of hand-painted skies.
+	Anime = {
+		Main  = { Brightness = 0.04,  Contrast = 0.18, Saturation = 0.45, TintColor = Color3.fromRGB(255, 240, 250) },
+		Grade = { Brightness = 0.02,  Contrast = 0.08, Saturation = 0.18, TintColor = Color3.fromRGB(250, 235, 255) },
+		AmbientShift = {  6,  10,  15},
+	},
+	-- IMAX-style HDR: low saturation, very high local contrast, cool-blue
+	-- shadows. Designed to mimic a 70mm projection where you can see
+	-- detail in highlights AND shadows simultaneously.
+	IMAX = {
+		Main  = { Brightness = 0.0,  Contrast = 0.30, Saturation = -0.14, TintColor = Color3.fromRGB(248, 250, 255) },
+		Grade = { Brightness = -0.02,Contrast = 0.13, Saturation = -0.06, TintColor = Color3.fromRGB(245, 248, 255) },
+		AmbientShift = { -3,   0,   8},
+	},
+	-- Hollywood blockbuster grade — warm orange skin tones + cool teal shadows.
+	-- The grade you see on basically every Marvel film and Michael Bay frame.
+	["Teal & Orange"] = {
+		Main  = { Brightness = 0.0,   Contrast = 0.24, Saturation = 0.20, TintColor = Color3.fromRGB(255, 232, 195) },
+		Grade = { Brightness = -0.01, Contrast = 0.12, Saturation = 0.10, TintColor = Color3.fromRGB(190, 230, 240) },
+		AmbientShift = {  5,   0,  -8},
 	},
 }
 
@@ -250,16 +305,23 @@ local ColorPresets = {
 local Profile = {
 	Lighting = {
 		Technology               = Enum.Technology.Future,
-		Ambient                  = Color3.fromRGB(70, 67, 62),
-		OutdoorAmbient           = Color3.fromRGB(154, 150, 144),
-		Brightness               = 2.5,
+		-- Foundational color science. Aim: PHOTOGRAPHIC NEUTRAL.
+		-- - Shadows tinted slightly COOL/BLUE (real sunlit shadows are blue
+		--   because sky bounce fills them — Rayleigh scattering). This was
+		--   the #1 cause of the "yellowish Roblox look" before the fix.
+		-- - Ground bounce kept near-neutral (not warm yellow).
+		-- - Ambient/OutdoorAmbient cool-neutral grey, not warm grey.
+		-- - Exposure dialed back so highlights don't blow out into yellow.
+		Ambient                  = Color3.fromRGB(48, 52, 60),
+		OutdoorAmbient           = Color3.fromRGB(142, 148, 158),
+		Brightness               = 2.3,
 		ClockTime                = 14.5,
-		ColorShift_Top           = Color3.fromRGB(16, 14, 12),
-		ColorShift_Bottom        = Color3.fromRGB(232, 218, 196),
-		EnvironmentDiffuseScale  = 0.58,
+		ColorShift_Top           = Color3.fromRGB(18, 22, 32),    -- COOL BLUE shadow tint
+		ColorShift_Bottom        = Color3.fromRGB(218, 220, 224), -- NEUTRAL ground bounce
+		EnvironmentDiffuseScale  = 0.62,
 		EnvironmentSpecularScale = 1.0,
-		ExposureCompensation     = 0.18,
-		FogColor                 = Color3.fromRGB(208, 208, 208),
+		ExposureCompensation     = 0.05,                          -- was 0.18, overblown
+		FogColor                 = Color3.fromRGB(192, 198, 210), -- slightly cool atmospheric haze
 		FogEnd                   = 100000,
 		FogStart                 = 2500,
 		GeographicLatitude       = 41.7,
@@ -854,21 +916,27 @@ end
 
 -- Each mood now also drives Brightness multiplier and ColorShift_Top (shadow tint),
 -- giving proper cinematic shadow color + scene exposure per time of day.
+-- Moods rebalanced for photographic realism:
+--   • Midday/Morning: ground bounce is NEUTRAL (not warm yellow), shadow tint
+--     is COOL BLUE (sky bounce filling shadows = real-world sunlit scene).
+--   • Golden/Sunset: keep the warmth — those moods SHOULD be warm by nature.
+--   • Dawn/Dusk: subtle cool/warm respectively.
+--   • Night: cool blue, as expected.
 local MOODS = {
 	Night   = { bloom=1.65, glare=0.00, density=1.30, expBias=-0.05, brightnessMul=0.65,
-	            bottomTint=Color3.fromRGB(192, 198, 222), topTint=Color3.fromRGB(15, 18, 30) },
+	            bottomTint=Color3.fromRGB(188, 196, 222), topTint=Color3.fromRGB(15, 18, 32) },
 	Dawn    = { bloom=1.40, glare=0.65, density=1.25, expBias= 0.02, brightnessMul=0.85,
-	            bottomTint=Color3.fromRGB(255, 210, 182), topTint=Color3.fromRGB(22, 16, 12) },
-	Morning = { bloom=1.28, glare=0.85, density=1.12, expBias= 0.08, brightnessMul=0.95,
-	            bottomTint=Color3.fromRGB(255, 226, 192), topTint=Color3.fromRGB(24, 18, 14) },
-	Midday  = { bloom=0.95, glare=1.00, density=0.92, expBias= 0.07, brightnessMul=1.00,
-	            bottomTint=Color3.fromRGB(230, 220, 200), topTint=Color3.fromRGB(15, 13, 10) },
+	            bottomTint=Color3.fromRGB(248, 218, 200), topTint=Color3.fromRGB(20, 20, 24) },
+	Morning = { bloom=1.20, glare=0.85, density=1.12, expBias= 0.05, brightnessMul=0.95,
+	            bottomTint=Color3.fromRGB(232, 228, 218), topTint=Color3.fromRGB(18, 22, 32) },
+	Midday  = { bloom=0.92, glare=1.00, density=0.92, expBias= 0.04, brightnessMul=1.00,
+	            bottomTint=Color3.fromRGB(220, 222, 224), topTint=Color3.fromRGB(20, 25, 38) },
 	Golden  = { bloom=1.32, glare=0.95, density=1.05, expBias= 0.06, brightnessMul=0.95,
 	            bottomTint=Color3.fromRGB(255, 198, 152), topTint=Color3.fromRGB(28, 20, 12) },
 	Sunset  = { bloom=1.45, glare=0.75, density=1.22, expBias= 0.04, brightnessMul=0.85,
 	            bottomTint=Color3.fromRGB(255, 175, 125), topTint=Color3.fromRGB(34, 18, 10) },
 	Dusk    = { bloom=1.35, glare=0.20, density=1.25, expBias=-0.02, brightnessMul=0.72,
-	            bottomTint=Color3.fromRGB(208, 196, 222), topTint=Color3.fromRGB(18, 16, 26) },
+	            bottomTint=Color3.fromRGB(202, 196, 220), topTint=Color3.fromRGB(20, 20, 30) },
 }
 
 local NEUTRAL_MOOD = {
@@ -3069,29 +3137,33 @@ function NightBeams.update()
 	if not State.Enabled then return end
 
 	local night = math.clamp(1 - PostFX.getDayBlend(), 0, 1)
-	-- Don't show until well past sunset / before sunrise
-	local strength = math.max(0, (night - 0.35) / 0.65)
-	local visible  = State.NightBeams and strength > 0.04
+	-- Fade in EARLIER (dusk) and ramp HARDER. The previous 0.35 floor delayed
+	-- visible light beams until full dark; lowering to 0.18 lets streetlamps
+	-- start glowing at golden hour, which is how real cities look.
+	local strength = math.max(0, (night - 0.18) / 0.82)
+	local visible  = State.NightBeams and strength > 0.02
 
 	-- Skip rebuilding curves if nothing visible has changed since last frame.
-	if math.abs(strength - lastStrengthApplied) < 0.015 then return end
+	if math.abs(strength - lastStrengthApplied) < 0.012 then return end
 	lastStrengthApplied = strength
 
 	for _, beam in ipairs(CollectionService:GetTagged(TAG_NIGHT_BEAM)) do
 		if beam.Parent then
 			beam.Enabled = visible
 			if visible then
-				-- Per-layer opacity: inner beam = full, outer halo = 40%.
+				-- Per-layer opacity: inner beam = full strength, outer halo = 40%.
 				-- Combined effect = bright tight shaft inside soft diffuse glow.
+				-- Strength multiplier raised 0.32 → 0.62 so the beams actually
+				-- read as visible light, not faint hints.
 				local opacityMul = beam:GetAttribute("Cinematic_OpacityMul") or 1
-				local startT = 1 - (strength * 0.32 * opacityMul)
+				local startT = 1 - (strength * 0.62 * opacityMul)
 				local span   = 1 - startT
 				beam.Transparency = NumberSequence.new({
 					NumberSequenceKeypoint.new(0,    startT),
-					NumberSequenceKeypoint.new(0.22, startT + span * 0.18),
-					NumberSequenceKeypoint.new(0.48, startT + span * 0.45),
-					NumberSequenceKeypoint.new(0.74, startT + span * 0.75),
-					NumberSequenceKeypoint.new(0.92, startT + span * 0.95),
+					NumberSequenceKeypoint.new(0.22, startT + span * 0.15),
+					NumberSequenceKeypoint.new(0.48, startT + span * 0.40),
+					NumberSequenceKeypoint.new(0.74, startT + span * 0.72),
+					NumberSequenceKeypoint.new(0.92, startT + span * 0.93),
 					NumberSequenceKeypoint.new(1,    1),
 				})
 			end
@@ -3875,6 +3947,516 @@ function AnisotropicMetals.update()
 end
 
 -- =========================================================================
+-- MODULE: RAIN DROPLETS — animated screen-space rain that streaks down the
+-- lens during Stormy weather. ~80 droplets, each a thin elongated frame
+-- (raindrops are oblong from motion blur) sliding from top to bottom of
+-- viewport with randomized speed + width. When a droplet exits the bottom
+-- it respawns at the top with new random parameters. Trailing droplets
+-- have higher alpha (closer to lens). Auto-enables when Weather=="Stormy"
+-- unless explicitly toggled off.
+-- =========================================================================
+
+local RainDroplets = {}
+local rainGui
+local rainDrops = {}
+local NUM_RAINDROPS = 90
+
+function RainDroplets.build()
+	if rainGui and rainGui.Parent then return end
+	rainGui = Instance.new("ScreenGui")
+	rainGui.Name = "Cinematic_RainDroplets"
+	rainGui.ResetOnSpawn = false
+	rainGui.IgnoreGuiInset = true
+	rainGui.DisplayOrder = 7   -- below film grain (8), above vignette
+	rainGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	rainGui.Enabled = false
+	rainGui.Parent = PlayerGui
+
+	rainDrops = {}
+	for i = 1, NUM_RAINDROPS do
+		local d = Instance.new("Frame")
+		d.AnchorPoint = Vector2.new(0.5, 0)
+		d.BorderSizePixel = 0
+		d.BackgroundColor3 = Color3.fromRGB(200, 215, 235)
+		d.Parent = rainGui
+		Instance.new("UICorner", d).CornerRadius = UDim.new(0.5, 0)
+		-- Subtle gradient: brighter at top of the drop, fading down
+		local g = Instance.new("UIGradient", d)
+		g.Rotation = 90
+		g.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0,    0.2),
+			NumberSequenceKeypoint.new(0.8,  0.5),
+			NumberSequenceKeypoint.new(1,    1),
+		})
+		rainDrops[i] = {
+			frame    = d,
+			x        = math.random(),                -- 0..1 viewport-relative
+			y        = math.random() * 1.2 - 0.2,    -- start above screen
+			speed    = 0.6 + math.random() * 0.9,    -- viewports per second
+			width    = 1 + math.random() * 1.5,
+			height   = 14 + math.random() * 22,
+			alpha    = 0.4 + math.random() * 0.4,
+		}
+	end
+end
+
+function RainDroplets.update(dt)
+	if not State.Enabled or not rainGui then return end
+	-- Show when explicitly on OR when weather is Stormy and module exists
+	local shouldShow = State.RainDroplets or (State.Weather == "Stormy" and State.Precipitation)
+	if rainGui.Enabled ~= shouldShow then rainGui.Enabled = shouldShow end
+	if not shouldShow then return end
+
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+	local vp = cam.ViewportSize
+	-- Rain intensifies with weather density; Stormy = 1.85, Clear = 1.0
+	local intensity = (PostFX.getWeather().density or 1.0)
+	local fallMul = 0.8 + intensity * 0.5
+
+	for _, drop in ipairs(rainDrops) do
+		drop.y = drop.y + drop.speed * fallMul * dt
+		if drop.y > 1.1 then
+			drop.x = math.random()
+			drop.y = -0.1
+			drop.speed = 0.6 + math.random() * 0.9
+			drop.width = 1 + math.random() * 1.5
+			drop.height = 14 + math.random() * 22
+			drop.alpha = 0.4 + math.random() * 0.4
+		end
+		drop.frame.Position = UDim2.fromOffset(drop.x * vp.X, drop.y * vp.Y)
+		drop.frame.Size     = UDim2.fromOffset(drop.width, drop.height)
+		drop.frame.BackgroundTransparency = 1 - (drop.alpha * 0.45)
+	end
+end
+
+function RainDroplets.cleanup()
+	if rainGui then rainGui:Destroy() rainGui = nil end
+	rainDrops = {}
+end
+
+-- =========================================================================
+-- MODULE: DUST MOTES — floating particles caught in light. The thing that
+-- makes daylight feel like real footage: tiny specks drifting through the
+-- frame, brighter when caught in volumetric beams. 60 particles, each on a
+-- slow sinusoidal path. Brightness modulates with the day-blend value.
+-- =========================================================================
+
+local DustMotes = {}
+local dustGui
+local dustMotes = {}
+local NUM_MOTES = 60
+
+function DustMotes.build()
+	if dustGui and dustGui.Parent then return end
+	dustGui = Instance.new("ScreenGui")
+	dustGui.Name = "Cinematic_DustMotes"
+	dustGui.ResetOnSpawn = false
+	dustGui.IgnoreGuiInset = true
+	dustGui.DisplayOrder = 6  -- below rain (7)
+	dustGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	dustGui.Enabled = false
+	dustGui.Parent = PlayerGui
+
+	dustMotes = {}
+	for i = 1, NUM_MOTES do
+		local m = Instance.new("Frame")
+		m.AnchorPoint = Vector2.new(0.5, 0.5)
+		m.BorderSizePixel = 0
+		m.BackgroundColor3 = Color3.fromRGB(255, 248, 220)
+		m.Size = UDim2.fromOffset(2 + math.random() * 2, 2 + math.random() * 2)
+		m.Parent = dustGui
+		Instance.new("UICorner", m).CornerRadius = UDim.new(1, 0)
+		dustMotes[i] = {
+			frame    = m,
+			baseX    = math.random(),
+			baseY    = math.random(),
+			ampX     = 0.04 + math.random() * 0.05,
+			ampY     = 0.03 + math.random() * 0.04,
+			phaseX   = math.random() * math.pi * 2,
+			phaseY   = math.random() * math.pi * 2,
+			speedX   = 0.15 + math.random() * 0.25,
+			speedY   = 0.10 + math.random() * 0.20,
+			twinkle  = math.random() * math.pi * 2,
+		}
+	end
+end
+
+function DustMotes.update()
+	if not State.Enabled or not State.DustMotes or not dustGui then return end
+	if not dustGui.Enabled then dustGui.Enabled = true end
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+	local vp = cam.ViewportSize
+	local t = os.clock()
+	local dayBlend = PostFX.getDayBlend()
+	local baseAlpha = 0.04 + dayBlend * 0.10
+
+	for _, mote in ipairs(dustMotes) do
+		local x = mote.baseX + math.sin(t * mote.speedX + mote.phaseX) * mote.ampX
+		local y = mote.baseY + math.cos(t * mote.speedY + mote.phaseY) * mote.ampY
+		-- wrap horizontally so motes don't pile up
+		x = x % 1
+		y = y % 1
+		mote.frame.Position = UDim2.fromOffset(x * vp.X, y * vp.Y)
+		local twinkleAlpha = 0.5 + math.sin(t * 2 + mote.twinkle) * 0.5
+		mote.frame.BackgroundTransparency = 1 - baseAlpha * twinkleAlpha
+	end
+end
+
+function DustMotes.setEnabled(enabled)
+	if dustGui then dustGui.Enabled = enabled end
+end
+
+function DustMotes.cleanup()
+	if dustGui then dustGui:Destroy() dustGui = nil end
+	dustMotes = {}
+end
+
+-- =========================================================================
+-- MODULE: LIGHT LEAKS — soft colored streaks at the edges of the frame during
+-- golden hour / sunset / dawn. Mimics real cinema lenses where strong sun off-
+-- axis leaks past the lens hood and tints the periphery warm orange or cool
+-- magenta. Five overlapping radial gradients pulse with sun position; opacity
+-- ramps with mood.glare and dayBlend so it only shows when there's actually
+-- a low sun in frame.
+-- =========================================================================
+
+local LightLeaks = {}
+local leakGui
+local leakFrames = {}
+
+function LightLeaks.build()
+	if leakGui and leakGui.Parent then return end
+	leakGui = Instance.new("ScreenGui")
+	leakGui.Name = "Cinematic_LightLeaks"
+	leakGui.ResetOnSpawn = false
+	leakGui.IgnoreGuiInset = true
+	leakGui.DisplayOrder = -7   -- behind film grain, in front of vignette
+	leakGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	leakGui.Enabled = false
+	leakGui.Parent = PlayerGui
+
+	-- Each leak: a large transparent frame with a strong-direction UIGradient
+	-- bleeding inward from one edge. Positions chosen so they overlap softly.
+	local defs = {
+		{ anchor = Vector2.new(0, 0.5),   pos = UDim2.new(0, 0, 0.5, 0),    rot = 0,    color = Color3.fromRGB(255, 175, 90) },   -- left orange
+		{ anchor = Vector2.new(1, 0.5),   pos = UDim2.new(1, 0, 0.5, 0),    rot = 180,  color = Color3.fromRGB(255, 195, 130) },  -- right amber
+		{ anchor = Vector2.new(0.5, 0),   pos = UDim2.new(0.5, 0, 0, 0),    rot = 90,   color = Color3.fromRGB(255, 210, 160) },  -- top warm
+		{ anchor = Vector2.new(0.5, 1),   pos = UDim2.new(0.5, 0, 1, 0),    rot = 270,  color = Color3.fromRGB(220, 150, 200) },  -- bottom magenta
+		{ anchor = Vector2.new(0, 0),     pos = UDim2.new(0, 0, 0, 0),      rot = 45,   color = Color3.fromRGB(255, 140, 80) },   -- TL corner
+	}
+	leakFrames = {}
+	for _, def in ipairs(defs) do
+		local f = Instance.new("Frame", leakGui)
+		f.AnchorPoint = def.anchor
+		f.Position = def.pos
+		f.Size = UDim2.new(0.55, 0, 0.65, 0)
+		f.BackgroundColor3 = def.color
+		f.BackgroundTransparency = 1
+		f.BorderSizePixel = 0
+		local g = Instance.new("UIGradient", f)
+		g.Rotation = def.rot
+		g.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0,    0.55),
+			NumberSequenceKeypoint.new(0.4,  0.85),
+			NumberSequenceKeypoint.new(1,    1),
+		})
+		table.insert(leakFrames, { frame = f, def = def })
+	end
+end
+
+function LightLeaks.update()
+	if not State.Enabled or not State.LightLeaks or not leakGui then return end
+	if not leakGui.Enabled then leakGui.Enabled = true end
+	local sunDir = Lighting:GetSunDirection()
+	-- elev: 0 = horizon (peak leak), 1 = zenith (no leak)
+	local elev = math.clamp(sunDir.Y, 0, 1)
+	-- Strongest at golden hour (elev ≈ 0.15), tapers off at noon
+	local horizonProx = math.exp(-((elev - 0.15) ^ 2) / 0.05)
+	local mood = PostFX.getMood()
+	local strength = math.clamp(horizonProx * (mood.glare or 1) * PostFX.getDayBlend(), 0, 1)
+	-- Pulse with subtle breathing motion so it feels alive
+	local pulse = 0.85 + math.sin(os.clock() * 0.6) * 0.15
+	for _, entry in ipairs(leakFrames) do
+		entry.frame.BackgroundTransparency = 1 - (strength * pulse * 0.30)
+	end
+end
+
+function LightLeaks.cleanup()
+	if leakGui then leakGui:Destroy() leakGui = nil end
+	leakFrames = {}
+end
+
+-- =========================================================================
+-- MODULE: LENS DIRT — static dust/scratches on the lens, only visible when
+-- the scene is brightly lit (or staring into the sun). Replicates the
+-- effect where bright bloomed highlights make every speck on the lens
+-- glow. Implementation: ~25 small random-shape frames scattered across the
+-- screen with very low base opacity; opacity scales with day-blend × sun
+-- visibility.
+-- =========================================================================
+
+local LensDirt = {}
+local dirtGui
+local dirtSpecks = {}
+local NUM_DIRT_SPECKS = 28
+
+function LensDirt.build()
+	if dirtGui and dirtGui.Parent then return end
+	dirtGui = Instance.new("ScreenGui")
+	dirtGui.Name = "Cinematic_LensDirt"
+	dirtGui.ResetOnSpawn = false
+	dirtGui.IgnoreGuiInset = true
+	dirtGui.DisplayOrder = -6   -- behind film grain, in front of light leaks
+	dirtGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	dirtGui.Enabled = false
+	dirtGui.Parent = PlayerGui
+
+	dirtSpecks = {}
+	for i = 1, NUM_DIRT_SPECKS do
+		local f = Instance.new("Frame", dirtGui)
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		-- Lens dust is mostly neutral. A real lens has neutral dust + a few
+		-- slightly warm/cool specks for variation, not a 60% warm bias.
+		local pick = math.random()
+		f.BackgroundColor3 =
+			pick < 0.20 and Color3.fromRGB(252, 245, 232)   -- warm dust (rare)
+			or pick < 0.40 and Color3.fromRGB(232, 240, 252) -- cool dust (rare)
+			or Color3.fromRGB(245, 247, 250)                  -- neutral (majority)
+		f.BackgroundTransparency = 1
+		f.BorderSizePixel = 0
+		-- Position is set ONCE at build time (lens dirt doesn't move)
+		f.Position = UDim2.fromScale(math.random(), math.random())
+		-- Mix of speck sizes — most small, some larger smears
+		local size = math.random() < 0.85 and (3 + math.random() * 4) or (8 + math.random() * 10)
+		f.Size = UDim2.fromOffset(size, size * (0.6 + math.random() * 0.8))
+		f.Rotation = math.random() * 360
+		Instance.new("UICorner", f).CornerRadius = UDim.new(1, 0)
+		-- Soft falloff edges
+		local g = Instance.new("UIGradient", f)
+		g.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0,    0.3),
+			NumberSequenceKeypoint.new(0.7,  0.7),
+			NumberSequenceKeypoint.new(1,    1),
+		})
+		table.insert(dirtSpecks, f)
+	end
+end
+
+local lastDirtTick = 0
+function LensDirt.update()
+	if not State.Enabled or not State.LensDirt or not dirtGui then return end
+	if not dirtGui.Enabled then dirtGui.Enabled = true end
+	local now = os.clock()
+	if now - lastDirtTick < 0.2 then return end   -- update slowly, this isn't motion
+	lastDirtTick = now
+	-- Brightness scales with sun visibility — dirt only "lights up" when light hits it
+	local dayBlend = PostFX.getDayBlend()
+	local sunDir = Lighting:GetSunDirection()
+	local cam = workspace.CurrentCamera
+	local sunFacing = 0
+	if cam and sunDir.Y > 0 then
+		sunFacing = math.max(0, cam.CFrame.LookVector:Dot(sunDir))
+	end
+	local base = (0.04 + dayBlend * 0.06) + sunFacing * 0.15
+	for _, s in ipairs(dirtSpecks) do
+		s.BackgroundTransparency = 1 - base
+	end
+end
+
+function LensDirt.cleanup()
+	if dirtGui then dirtGui:Destroy() dirtGui = nil end
+	dirtSpecks = {}
+end
+
+-- =========================================================================
+-- MODULE: GOD RAYS — VISIBLE sun light shafts streaming through the air.
+-- This is the thing the existing pipeline was missing: the RayTrace module
+-- does invisible reflection raycasts (you can't SEE the rays), NightBeams
+-- only show at night, and SunRaysEffect is screen-space and limited. God
+-- rays = N parallel Beam billboards aligned along Lighting:GetSunDirection(),
+-- arranged in a perpendicular grid around the camera. When the camera looks
+-- toward the sun you get a fan of visible light shafts; perpendicular gives
+-- streaking shafts crossing the frame. They follow the camera so coverage is
+-- always centered on you.
+--
+-- Visual rules:
+--   • Color reddens toward horizon (atmospheric scattering).
+--   • Brightness scales with day-blend × user intensity × weather density.
+--   • Per-ray phase pulses opacity for "dust drifting through beam" feel.
+--   • Hidden when sun is below horizon (sunDir.Y < 0).
+-- =========================================================================
+
+local GodRays = {}
+local TAG_GOD_RAY    = "Cinematic_GodRay"
+local godRayContainer
+local godRayBeams    = {}
+local GOD_RAY_COLS   = 11      -- horizontal grid count (perpendicular to sun)
+local GOD_RAY_ROWS   = 9       -- vertical grid count
+local GOD_RAY_TOTAL  = GOD_RAY_COLS * GOD_RAY_ROWS   -- 99 beams
+local GOD_RAY_SPACING_H = 14   -- horizontal stud spacing
+local GOD_RAY_SPACING_V = 14   -- vertical stud spacing
+local GOD_RAY_LENGTH    = 220  -- how long each beam is along sun direction
+
+function GodRays.build()
+	if godRayContainer and godRayContainer.Parent then return end
+	godRayContainer = Instance.new("Folder")
+	godRayContainer.Name = "Cinematic_GodRays"
+	godRayContainer.Parent = Workspace
+
+	godRayBeams = {}
+	for i = 1, GOD_RAY_TOTAL do
+		local part = Instance.new("Part")
+		part.Name        = "GodRay_" .. i
+		part.Anchored    = true
+		part.CanCollide  = false
+		part.CanTouch    = false
+		part.CanQuery    = false
+		part.Massless    = true
+		part.Locked      = true
+		part.CastShadow  = false
+		part.Material    = Enum.Material.SmoothPlastic
+		part.Transparency = 1
+		part.Size        = Vector3.new(0.1, 0.1, 0.1)
+		part.Parent      = godRayContainer
+
+		local a0 = Instance.new("Attachment", part)
+		local a1 = Instance.new("Attachment", part)
+
+		local beam = Instance.new("Beam", part)
+		beam.Attachment0    = a0
+		beam.Attachment1    = a1
+		beam.FaceCamera     = true
+		beam.LightInfluence = 0
+		beam.LightEmission  = 1
+		beam.Width0         = 5
+		beam.Width1         = 7
+		beam.Segments       = 6
+		beam.Color          = ColorSequence.new(Color3.fromRGB(255, 245, 215))
+		beam.Transparency   = NumberSequence.new(1)
+		beam.Enabled        = false
+		beam.Parent         = part
+		CollectionService:AddTag(beam, TAG_GOD_RAY)
+
+		-- Grid index: column 0..COLS-1, row 0..ROWS-1, centered (subtract halves)
+		local col = ((i - 1) % GOD_RAY_COLS) - math.floor(GOD_RAY_COLS / 2)
+		local row = math.floor((i - 1) / GOD_RAY_COLS) - math.floor(GOD_RAY_ROWS / 2)
+
+		godRayBeams[i] = {
+			part = part, beam = beam, a0 = a0, a1 = a1,
+			col = col, row = row,
+			-- Per-ray random phase for animated dust-drift opacity pulse
+			phase   = math.random() * math.pi * 2,
+			-- Per-ray brightness variation so the field isn't uniform
+			brightness = 0.65 + math.random() * 0.7,
+		}
+	end
+end
+
+function GodRays.update(dt)
+	if not godRayContainer then return end
+	if not State.Enabled or not State.GodRays then
+		for _, ray in ipairs(godRayBeams) do
+			ray.beam.Enabled = false
+		end
+		return
+	end
+
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+
+	local sunDir = Lighting:GetSunDirection()
+	-- Sun below horizon → kill all rays. (Sunrise/sunset transition handled
+	-- by the dayBlend multiplier below.)
+	if sunDir.Y < 0.02 then
+		for _, ray in ipairs(godRayBeams) do
+			ray.beam.Enabled = false
+		end
+		return
+	end
+
+	local camPos = cam.CFrame.Position
+
+	-- ===== SUN COLOR =====
+	-- Reddens toward horizon (Rayleigh scattering). At noon it's near-white,
+	-- at sunset it's deep orange-red.
+	local elev        = math.clamp(sunDir.Y, 0, 1)
+	local horizonProx = (1 - elev) ^ 1.2
+	local sunColor = Color3.new(
+		1,
+		math.clamp(0.96 - horizonProx * 0.22, 0.55, 1),
+		math.clamp(0.85 - horizonProx * 0.40, 0.30, 1)
+	)
+
+	-- ===== PERPENDICULAR PLANE =====
+	-- The rays sit in a flat grid PERPENDICULAR to the sun direction. To build
+	-- that grid we need two orthogonal axes perpendicular to sunDir.
+	local right
+	if math.abs(sunDir.Y) > 0.99 then
+		-- Sun nearly straight up — use world X as the right axis fallback
+		right = Vector3.new(1, 0, 0)
+	else
+		right = sunDir:Cross(Vector3.new(0, 1, 0)).Unit
+	end
+	local upPlane = right:Cross(sunDir).Unit
+
+	-- ===== VISIBILITY =====
+	-- Day blend kills the rays at night even if user toggled them on (sun is
+	-- below horizon then, but doubles as a safety net during dawn/dusk).
+	-- Weather density makes rays more visible in misty / cloudy conditions
+	-- (more particles in air to catch light = brighter shafts).
+	local dayBlend     = PostFX.getDayBlend()
+	local weather      = PostFX.getWeather()
+	local moodGlare    = (PostFX.getMood().glare or 1)
+	local visibility   = dayBlend * (weather.density or 1) * moodGlare * State.GodRaysIntensity
+	-- Base per-ray opacity (peak at beam center; falls off at ends)
+	local basePeak     = 0.18 * visibility
+
+	local t = os.clock()
+	for _, ray in ipairs(godRayBeams) do
+		-- Position the ray center in the sun-perpendicular grid around camera
+		local jitterY = math.sin(t * 0.5 + ray.phase) * 1.5   -- gentle drift
+		local rayCenter = camPos
+			+ right   * (ray.col * GOD_RAY_SPACING_H)
+			+ upPlane * (ray.row * GOD_RAY_SPACING_V + jitterY)
+
+		-- Beam runs ALONG sun direction. a0 = closer to sun, a1 = further away
+		ray.a0.WorldPosition = rayCenter + sunDir * (GOD_RAY_LENGTH * 0.5)
+		ray.a1.WorldPosition = rayCenter - sunDir * (GOD_RAY_LENGTH * 0.5)
+
+		-- Per-ray animated brightness (dust caught in beam)
+		local pulse = 0.7 + 0.3 * math.sin(t * 0.6 + ray.phase * 1.3)
+		local peak  = basePeak * ray.brightness * pulse
+
+		ray.beam.Enabled = peak > 0.01
+		ray.beam.Color = ColorSequence.new(sunColor)
+		ray.beam.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0,    1),
+			NumberSequenceKeypoint.new(0.3,  math.clamp(1 - peak * 0.7, 0.6, 1)),
+			NumberSequenceKeypoint.new(0.5,  math.clamp(1 - peak, 0.55, 1)),
+			NumberSequenceKeypoint.new(0.7,  math.clamp(1 - peak * 0.7, 0.6, 1)),
+			NumberSequenceKeypoint.new(1,    1),
+		})
+	end
+end
+
+function GodRays.setEnabled(enabled)
+	if not godRayContainer then return end
+	for _, beam in ipairs(CollectionService:GetTagged(TAG_GOD_RAY)) do
+		beam.Enabled = enabled
+	end
+end
+
+function GodRays.cleanup()
+	if godRayContainer then
+		godRayContainer:Destroy()
+		godRayContainer = nil
+		godRayBeams = {}
+	end
+end
+
+-- =========================================================================
 -- MODULE: API — public toggle/intensity/preset functions
 -- =========================================================================
 
@@ -3974,24 +4556,38 @@ function API.setQuality(name)
 		State.Caustics           = true
 		State.SunDisc            = true
 		State.FilmGrain          = true
+		State.DustMotes          = true
+		State.LightLeaks         = true
+		State.LensDirt           = true
+		State.RainDroplets       = true   -- shows only during Stormy weather, harmless otherwise
+		State.GodRays            = true   -- VISIBLE sun shafts — the main "ray tracing rays" effect
+		State.GodRaysIntensity   = isMax and 1.3 or 1.0
 		-- Chromatic aberration is heavier and reads "stylised"; Max gets it
 		-- by default, Ultra leaves it off (user can toggle on if wanted).
 		State.ChromaticAberration = isMax
 
 		-- Photographic-neutral colour grade. Real footage is rarely as saturated
-		-- as default Roblox; pulling vibrance down and lifting gain reads as
-		-- "captured by a sensor" rather than "engine output".
+		-- as default Roblox; pull vibrance DOWN aggressively, lift gain
+		-- moderately, keep white balance pure neutral daylight (6500K). Result
+		-- reads as "captured by a sensor" instead of "engine default".
+		--   • Vibrance pushed harder (-18 Max / -12 Ultra). Roblox materials
+		--     start oversaturated relative to real surfaces; this gets them
+		--     back into reference range.
+		--   • Lift slightly negative so shadows go DEEP (real cameras crush
+		--     blacks; lifted-shadow look is what makes the image read flat /
+		--     game-engine-y).
+		--   • Gain modest — too high blows out highlights into yellow.
 		State.WhiteBalance       = 6500
 		State.WBTint             = 0
 		State.HueShift           = 0
-		State.Vibrance           = isMax and -14 or -8
-		State.Lift               = isMax and 0.03 or 0.01
+		State.Vibrance           = isMax and -18 or -12
+		State.Lift               = isMax and -0.02 or -0.01
 		State.Gamma              = 1.0
-		State.Gain               = isMax and 1.12 or 1.06
-		State.FilmGrainAmount    = isMax and 0.20 or 0.13
-		State.ChromaticAmount    = isMax and 0.40 or 0.0
+		State.Gain               = isMax and 1.08 or 1.04
+		State.FilmGrainAmount    = isMax and 0.22 or 0.14
+		State.ChromaticAmount    = isMax and 0.35 or 0.0
 		State.VolumetricDensity  = isMax and 1.30 or 1.05
-		State.SSAOIntensity      = isMax and 0.70 or 0.55
+		State.SSAOIntensity      = isMax and 0.75 or 0.60
 
 		-- Auto-promote grade and tonemap to photoreal/cinematic. Leave the
 		-- user's pick alone if it's a deliberate stylised look.
@@ -4016,6 +4612,10 @@ function API.setQuality(name)
 	SunDisc.setEnabled(State.SunDisc and State.Enabled)
 	VolFog.setEnabled(State.VolumetricFog and State.Enabled)
 	Caustics.setEnabled(State.Caustics and State.Enabled)
+	DustMotes.setEnabled(State.DustMotes and State.Enabled)
+	if leakGui then leakGui.Enabled = State.LightLeaks and State.Enabled end
+	if dirtGui then dirtGui.Enabled = State.LensDirt and State.Enabled end
+	GodRays.setEnabled(State.GodRays and State.Enabled)
 
 	if QualityProfiles[name].OverlayEnabled then
 		Reflections.repopulate()
@@ -4319,6 +4919,37 @@ function API.setAnisotropicMetals(enabled)
 	end
 end
 
+-- Atmospheric overlays (screen-space)
+function API.setRainDroplets(enabled)
+	State.RainDroplets = enabled and true or false
+	-- RainDroplets module manages its own ScreenGui.Enabled in update()
+	-- based on weather + this flag, so no extra action needed here.
+end
+
+function API.setDustMotes(enabled)
+	State.DustMotes = enabled and true or false
+	DustMotes.setEnabled(State.DustMotes and State.Enabled)
+end
+
+function API.setLightLeaks(enabled)
+	State.LightLeaks = enabled and true or false
+	if not enabled and leakGui then leakGui.Enabled = false end
+end
+
+function API.setLensDirt(enabled)
+	State.LensDirt = enabled and true or false
+	if not enabled and dirtGui then dirtGui.Enabled = false end
+end
+
+function API.setGodRays(enabled)
+	State.GodRays = enabled and true or false
+	GodRays.setEnabled(State.GodRays and State.Enabled)
+end
+
+function API.setGodRaysIntensity(value)
+	State.GodRaysIntensity = math.clamp(value or 1, 0, 2)
+end
+
 -- =========================================================================
 -- RTX MEGA-PRESET
 -- One-tap activation of the full realism stack: every new module on,
@@ -4560,7 +5191,7 @@ function UI.tryRayfield()
 
 		Visuals:CreateDropdown({
 			Name = "Color Preset",
-			Options = { "Enhanced", "Cinematic", "Realistic", "Photorealistic", "GTA Day", "GTA Night", "Sunset", "Vintage", "Neutral" },
+			Options = { "Enhanced", "Cinematic", "Realistic", "Photorealistic", "Cyberpunk", "Noir", "Anime", "IMAX", "Teal & Orange", "GTA Day", "GTA Night", "Sunset", "Vintage", "Neutral" },
 			CurrentOption = State.ColorPreset,
 			Flag = "ucs_preset",
 			Callback = function(v)
@@ -4872,6 +5503,25 @@ function UI.tryRayfield()
 			Callback = function() API.activateRTX() end,
 		})
 
+		RTX:CreateLabel("--- Visible Light Shafts ---")
+
+		RTX:CreateToggle({
+			Name = "God Rays (visible sun shafts)",
+			CurrentValue = State.GodRays,
+			Flag = "ucs_godrays",
+			Callback = function(v) API.setGodRays(v) end,
+		})
+
+		RTX:CreateSlider({
+			Name = "God Rays Intensity",
+			Range = { 0, 2 },
+			Increment = 0.05,
+			Suffix = "x",
+			CurrentValue = State.GodRaysIntensity,
+			Flag = "ucs_godrays_i",
+			Callback = function(v) API.setGodRaysIntensity(v) end,
+		})
+
 		RTX:CreateLabel("--- Realism Modules ---")
 
 		RTX:CreateToggle({
@@ -4968,6 +5618,36 @@ function UI.tryRayfield()
 			CurrentValue = State.ChromaticAmount,
 			Flag = "ucs_chroma_amt",
 			Callback = function(v) API.setChromaticAmount(v) end,
+		})
+
+		RTX:CreateLabel("--- Atmospheric Overlays ---")
+
+		RTX:CreateToggle({
+			Name = "Rain Droplets (auto in Stormy)",
+			CurrentValue = State.RainDroplets,
+			Flag = "ucs_rain",
+			Callback = function(v) API.setRainDroplets(v) end,
+		})
+
+		RTX:CreateToggle({
+			Name = "Dust Motes (floating particles)",
+			CurrentValue = State.DustMotes,
+			Flag = "ucs_dust",
+			Callback = function(v) API.setDustMotes(v) end,
+		})
+
+		RTX:CreateToggle({
+			Name = "Light Leaks (golden hour glow)",
+			CurrentValue = State.LightLeaks,
+			Flag = "ucs_leaks",
+			Callback = function(v) API.setLightLeaks(v) end,
+		})
+
+		RTX:CreateToggle({
+			Name = "Lens Dirt",
+			CurrentValue = State.LensDirt,
+			Flag = "ucs_dirt",
+			Callback = function(v) API.setLensDirt(v) end,
 		})
 
 		RTX:CreateLabel("--- Advanced Color ---")
@@ -5438,7 +6118,7 @@ function UI.buildFallback()
 	makeCycle (v, "Quality",            { "Low", "Medium", "High", "Ultra", "Max" },
 	           State.Quality, Color3.fromRGB(40, 130, 90),
 	           function(q) API.setQuality(q) end)
-	makeCycle (v, "Preset",             { "Enhanced", "Cinematic", "Realistic", "Photorealistic", "GTA Day", "GTA Night", "Sunset", "Vintage", "Neutral" },
+	makeCycle (v, "Preset",             { "Enhanced", "Cinematic", "Realistic", "Photorealistic", "Cyberpunk", "Noir", "Anime", "IMAX", "Teal & Orange", "GTA Day", "GTA Night", "Sunset", "Vintage", "Neutral" },
 	           State.ColorPreset, Color3.fromRGB(80, 60, 150),
 	           function(p) API.setColorPreset(p) end)
 	makeCycle (v, "Tonemap",            { "Linear", "Filmic", "ACES", "Punchy", "Reinhard", "Cinematic" },
@@ -5498,6 +6178,8 @@ function UI.buildFallback()
 	-- ===== RTX TAB — advanced realism stack =====
 	local rt = tabPages.RTX
 	makeButton(rt, "* ACTIVATE RTX MODE *",      Color3.fromRGB(180, 60, 200), function() API.activateRTX() end)
+	makeToggle(rt, "God Rays (sun shafts)",      State.GodRays,            function(s) API.setGodRays(s) end)
+	makeSlider(rt, "God Rays Intensity",  {0, 2},  State.GodRaysIntensity, "%.2fx", function(x) API.setGodRaysIntensity(x) end)
 	makeToggle(rt, "Enhanced GI",                State.EnhancedGI,         function(s) API.setEnhancedGI(s) end)
 	makeToggle(rt, "SSAO",                       State.SSAO,               function(s) API.setSSAO(s) end)
 	makeSlider(rt, "SSAO Intensity",       {0, 1},  State.SSAOIntensity,  "%.2f",  function(x) API.setSSAOIntensity(x) end)
@@ -5510,6 +6192,11 @@ function UI.buildFallback()
 	makeSlider(rt, "Film Grain Amount",    {0, 1},  State.FilmGrainAmount, "%.2f",  function(x) API.setFilmGrainAmount(x) end)
 	makeToggle(rt, "Chromatic Aberration",       State.ChromaticAberration, function(s) API.setChromaticAberration(s) end)
 	makeSlider(rt, "Chroma Amount",        {0, 1},  State.ChromaticAmount, "%.2f",  function(x) API.setChromaticAmount(x) end)
+	-- Atmospheric overlays
+	makeToggle(rt, "Rain Droplets",              State.RainDroplets,       function(s) API.setRainDroplets(s) end)
+	makeToggle(rt, "Dust Motes",                 State.DustMotes,          function(s) API.setDustMotes(s) end)
+	makeToggle(rt, "Light Leaks",                State.LightLeaks,         function(s) API.setLightLeaks(s) end)
+	makeToggle(rt, "Lens Dirt",                  State.LensDirt,           function(s) API.setLensDirt(s) end)
 	-- Advanced color grading
 	makeSlider(rt, "White Balance",  {1500, 15000}, State.WhiteBalance,    "%.0fK", function(x) API.setWhiteBalance(x) end)
 	makeSlider(rt, "WB Tint",        {-100, 100},   State.WBTint,          "%.0f",  function(x) API.setWBTint(x) end)
@@ -5685,6 +6372,11 @@ local function init()
 	FilmGrain.build()
 	SunDisc.build()
 	VolFog.build()
+	RainDroplets.build()
+	DustMotes.build()
+	LightLeaks.build()
+	LensDirt.build()
+	GodRays.build()
 	print("[UltraShader] - RTX stack built")
 
 	-- Bind the main per-frame loop now that every module is defined.
@@ -5715,18 +6407,30 @@ local function init()
 		Caustics.update()
 		SSAO.update()
 		AnisotropicMetals.update()
+		RainDroplets.update(dt)
+		DustMotes.update()
+		LightLeaks.update()
+		LensDirt.update()
+		GodRays.update(dt)
 	end))
 	print("[UltraShader] - RenderStepped bound")
 
-	-- UI: try Rayfield first (HTTP), fall back to built-in custom panel.
+	-- UI: try Rayfield first on desktop, but force the mobile-friendly
+	-- fallback panel on touch-only devices. Rayfield ships a desktop-first
+	-- layout that often half-loads on phones (panel renders off-screen, the
+	-- keybind toggle has no equivalent, drag handles fight the touch input).
+	-- Our fallback UI was built explicitly for touch and has every option.
+	local isTouchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 	local rayfieldOk = false
-	pcall(function() rayfieldOk = UI.tryRayfield() end)
+	if not isTouchOnly then
+		pcall(function() rayfieldOk = UI.tryRayfield() end)
+	end
 	if rayfieldOk then
 		print("[UltraShader] - Rayfield UI loaded")
 	else
 		local fbOk, fbErr = pcall(UI.buildFallback)
 		if fbOk then
-			print("[UltraShader] - fallback UI built")
+			print("[UltraShader] - fallback UI built" .. (isTouchOnly and " (mobile)" or ""))
 		else
 			warn("[UltraShader] Fallback UI failed: " .. tostring(fbErr))
 		end
@@ -5769,6 +6473,11 @@ local function kill()
 	pcall(function() SunDisc.cleanup() end)
 	pcall(function() VolFog.cleanup() end)
 	pcall(function() Caustics.cleanup() end)
+	pcall(function() RainDroplets.cleanup() end)
+	pcall(function() DustMotes.cleanup() end)
+	pcall(function() LightLeaks.cleanup() end)
+	pcall(function() LensDirt.cleanup() end)
+	pcall(function() GodRays.cleanup() end)
 
 	-- Destroy plugin-created FX nodes that aren't the place's own
 	for _, name in ipairs({
@@ -5788,6 +6497,8 @@ local function kill()
 		"Cinematic_Vignette", "Cinematic_LensFlare", "Cinematic_PerfHUD",
 		"Cinematic_FallbackUI", "Cinematic_FallbackToggle", "Cinematic_Toast",
 		"Cinematic_FilmGrain", "Cinematic_SunDisc",
+		"Cinematic_RainDroplets", "Cinematic_DustMotes",
+		"Cinematic_LightLeaks", "Cinematic_LensDirt",
 	}) do
 		local g = PlayerGui:FindFirstChild(name)
 		if g then g:Destroy() end
@@ -5796,6 +6507,8 @@ local function kill()
 	-- Destroy workspace folders we created
 	local volFog = Workspace:FindFirstChild("Cinematic_VolFog")
 	if volFog then volFog:Destroy() end
+	local godRays = Workspace:FindFirstChild("Cinematic_GodRays")
+	if godRays then godRays:Destroy() end
 
 	-- Restore camera FOV
 	if OriginalFOV and workspace.CurrentCamera then
